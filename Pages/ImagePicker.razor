@@ -1,0 +1,346 @@
+﻿@page "/images"
+@using System.IO
+@using System.Text.Json
+@using System.Collections.Generic
+@using System.Data
+@using OlympusCameraHelper.Services
+@using OlympusCameraHelper.Types
+@inject AppState state
+@inject CameraService cameraService
+@inject TaskRunner taskRunner
+@inject DownloadService downloadService
+@inject HttpClient client;
+<style>
+    textarea {
+        height: 100%;
+        width: 100%;
+        border: none;
+        resize: none;        
+    }
+
+    .image-container {
+        position: relative;
+        height: 200px;
+        width: 200px;
+        display: inline-flex;
+        margin: 1px;
+        border: 1px gray solid;
+    }
+    
+    .image-container.download-indeterminate:after {
+         content: '';
+         width: 100%;
+         height: 5px;
+         background: darkgoldenrod;
+         position: absolute;
+         top: -5px;
+     }
+     
+    .image-container.download-failed:after {
+         content: '';
+         width: 100%;
+         height: 5px;
+         background: red;
+         position: absolute;
+         top: -5px;
+     }
+    
+    @foreach (var i in Enumerable.Range(0, 21).Select(i => i * 5))
+    {
+        <text>.image-container.download-@(i):after {
+            content: '';
+            width: @(i)%;
+            height: 5px;
+            background: green;
+            position: absolute;
+            top: -5px;
+        }</text>
+    }
+
+    .image-container img {
+        width: 100%;
+    }
+    
+    .image-container .image-size {
+        position: absolute;
+        bottom: -2px;
+        right: -2px;
+        color: black;
+        text-shadow: -1px 0 white, 0 1px white, 1px 0 white, 0 -1px white;
+    }
+
+    .image-text {
+        position: absolute;
+        top: 5px;
+        left: 5px;
+        width: 130px;
+    }
+    
+</style>
+
+<h1>Olympus Image Viewer</h1>
+@*<div>COMMAND_LIST&nbsp;<code>http://192.168.0.10/get_commandlist.cgi</code></div>
+<div>IMAGE_LIST&nbsp;<code>http://192.168.0.10/get_imglist.cgi?DIR=/DCIM/100OLYMP</code></div>
+<div>IMAGE_THUMBNAIL&nbsp;<code>http://192.168.0.10/get_thumbnail.cgi?DIR=/DCIM/100OLYMP/P5110024.JPG</code></div>
+<div>IMAGE&nbsp;<code>http://192.168.0.10/DCIM/100OLYMP/P5110024.JPG</code></div>
+<div>HELP&nbsp;<code>https://dev.0l.de/projects/omd/start</code></div>*@
+
+
+<div>
+    @{
+        var text = "Connect";
+        var cls = "badge-danger";
+        if (connectState == ConnectState.Connecting)
+        {
+            text = "Connecting";
+            cls = "badge-warning";
+        }
+        else if (connectState == ConnectState.Connected)
+        {
+            text = "Connected";
+            cls = "badge-success";
+        }
+    }
+    <button @onclick="Connect" class="btn btn-light"><span>@text</span>&nbsp;<span class="badge @cls badge-pill">&nbsp;</span></button>
+
+    <div style="margin-top: 5px;">
+        <button @onclick="Count" class="btn btn-light">
+            <span>Add</span>
+        </button>
+        @count
+    </div>
+    <div style="margin-top: 5px;">
+        <button @onclick="Count" class="btn btn-light">
+            <span>Add</span>
+        </button>
+        @taskRunner.Count;
+    </div>
+</div>
+<div>
+    <!--<button @onclick="(() => { skip += take; })">Skip+10</button>-->
+</div>
+<hr/>
+@if (connectState == ConnectState.Connected)
+{
+    <div id="navigationEntities">
+        @if (entities != null)
+        {
+            foreach (var entity in entities)
+            {
+                if (entity.Type == NavigationEntityType.Directory)
+                {
+                    <div @onclick="(() => GetDirectory(Path.Join(entity.DirectoryName, entity.Name)))">@entity.Name</div>
+                }
+                else if (entity.Type == NavigationEntityType.Image)
+                {
+                    var image = entity as Image;
+
+                    var downloadBar = "";
+                    switch (image.State)
+                    {
+                        case Image.DownloadState.Enqueued:
+                            downloadBar = "download-indeterminate";
+                            break;
+                        case Image.DownloadState.Downloading:
+                            if (image.DownloadProgress != null)
+                            {
+                                downloadBar = "download-" + ((int) (image.DownloadProgress / 5) * 5);
+                            }
+                            else
+                            {
+                                downloadBar = "download-indeterminate";
+                            }
+                            break;
+                        case Image.DownloadState.Completed:
+                            downloadBar = "download-100";
+                            break;
+                        case Image.DownloadState.Failed:
+                            downloadBar = "download-failed";
+                            break;
+                    }
+
+                    <div class="image-container @downloadBar" @onclick="() => SaveImage(image)">
+                        @if (!string.IsNullOrEmpty(image.Thumbnail))
+                        {
+                            <img src="data:image/png;base64, @image.Thumbnail" draggable="false"/>
+                        }
+                        else
+                        {
+                            <span class="image-text">@image.DirectoryName / @image.Name</span>
+                        }
+
+                        @if (image.Size > 0)
+                        {
+                            <span class="image-size">@image.FormattedSize</span>
+                        }
+                    </div>
+                }
+            }
+        }
+    </div>
+}
+
+<div id="downloads">
+    @if (downloadService.Downloads != null && downloadService.Downloads.Any())
+    {
+        <table class="table table-sm table-striped">
+            @foreach (var dt in downloadService.Downloads)
+            {
+                <tr>
+                    <td>@dt.Image.Name @(!string.IsNullOrEmpty(dt.Image.Error) ? " - " + dt.Image.Error : "")</td>
+                </tr>
+            }
+        </table>
+    }
+</div>
+
+<hr/>
+
+<div id="errors">
+    @if (errors != null)
+    {
+        @foreach (var error in errors)
+        {
+            <div>@error</div>
+        }
+    }
+</div>
+
+@code {
+    List<NavigationEntity> entities;
+    int skip = 0;
+    int take = 2;
+    List<string> errors;
+    ConnectState connectState;
+    int count = 0;
+
+    public async Task Count()
+    {
+        count++;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        connectState = ConnectState.Disconnected;
+        errors = new List<string>();
+        this.entities = new List<NavigationEntity>();
+        downloadService.StateChanged += (o, s) =>
+        {
+    //this.StateHasChanged();
+        };
+    //await GetDirectory("/");
+        taskRunner.Start(1);
+    }
+
+    private async Task GetDirectory(string path)
+    {
+        entities.Clear();
+
+        await foreach (var navigationEntity in cameraService.GetDirectory(path, 0, 20))
+        {
+            entities.Add(navigationEntity);
+
+            this.StateHasChanged();
+        }
+    }
+
+    private async Task Connect()
+    {
+        try
+        {
+            connectState = ConnectState.Connecting;
+            var model = await this.cameraService.GetModel();
+            var connected = !string.IsNullOrEmpty(model);
+            if (connected)
+            {
+                connectState = ConnectState.Connected;
+                this.entities.Clear();
+                await foreach (var entity in cameraService.GetDirectory("/DCIM/100OLYMP", 0, 20))
+                {
+                    this.entities.Add(entity);
+                    if (entity is Image image)
+                    {
+                        this.StateHasChanged();
+                        taskRunner.Enqueue(() =>
+                        {
+                            var thumbnailTask = cameraService.GetThumbnail(image.DirectoryName, image.Name);
+                            var sizeTask = cameraService.GetImageSize(image.DirectoryName, image.Name);
+
+                            var t = Task.WhenAll(thumbnailTask, sizeTask).ContinueWith(
+                                result =>
+                                {
+                                    image.Thumbnail = thumbnailTask.Result;
+                                    image.Size = sizeTask.Result;
+                                    this.StateHasChanged();
+                                }
+                            );
+
+                            return t;
+                        });
+                    }
+                }
+            }
+            else
+            {
+                connectState = ConnectState.Disconnected;
+            }
+        }
+        catch (Exception e)
+        {
+            connectState = ConnectState.Disconnected;
+            errors.Add(e.Message + e.StackTrace);
+        }
+    }
+
+    private async Task SaveImage(Image image)
+    {
+        if (image.State != Image.DownloadState.None)
+            return;
+
+        image.State = Image.DownloadState.Enqueued;
+        try
+        {
+            taskRunner.Enqueue(async () =>
+            {
+                var lastUpdate = DateTime.Now;
+                //var result = await cameraService.SaveImage(image, (current, total) =>
+                var t = cameraService.SaveImage(image, (current, total) =>
+                {
+                    image.State = Image.DownloadState.Downloading;
+                    image.DownloadCurrent = current;
+                    if (total != null)
+                    {
+                        image.DownloadProgress = ((double) (current * 100) / total);
+                    }
+
+                    if (DateTime.Now - lastUpdate > TimeSpan.FromMilliseconds(1000))
+                    {
+                        this.StateHasChanged();
+                        lastUpdate = DateTime.Now;
+                    }
+                }, (err) => { });
+
+                await t;
+                
+                image.State = t.IsFaulted ? Image.DownloadState.Failed : Image.DownloadState.Completed;
+                
+                this.StateHasChanged();
+            });
+        }
+        catch (Exception e)
+        {
+            errors.Add(e.Message);
+        }
+        finally
+        {
+        }
+    }
+
+    private enum ConnectState
+    {
+        Disconnected,
+        Connecting,
+        Connected
+    }
+
+}

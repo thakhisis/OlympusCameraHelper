@@ -1,0 +1,28 @@
+﻿@page "/downloads"
+@using System.IO
+@using System.Text.Json
+@using System.Collections.Generic
+@using OlympusCameraHelper.Services
+@using OlympusCameraHelper.Types
+@inject AppState state
+@inject DownloadService downloadService
+@inject HttpClient client;
+
+<h1>Downloads</h1>
+
+<table>
+<thead>
+    <tr><th>Name</th><th>Progress</th></tr>
+</thead>
+<tbody>
+
+</tbody>
+</table>
+
+@code {
+
+    List<Image> downloads;
+    protected override async Task OnInitializedAsync() {
+        downloads = downloadService.Downloads.Select(dt => dt.Image).ToList();
+    }
+}

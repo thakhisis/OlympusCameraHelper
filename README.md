@@ -1,2 +1,3 @@
-# OlympusCameraHelper
-Blazor project for downloading pictures for the PEN F Olympus Micro 4/3 camera.
+## RUN
+
+Run from terminal with `dotnet run` or a access denied exception will happen due to launching from the `dotnet.exe` directory.

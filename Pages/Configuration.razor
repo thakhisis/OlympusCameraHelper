@@ -1,0 +1,65 @@
+﻿@page "/configuration"
+@inject OlympusCameraHelper.Services.AppState state
+
+<h1>Configuration</h1>
+
+<div>
+    <div>
+        <span>Path</span>
+        <input type="text" @bind="state.Configuration.LocalPath"  />
+    </div>
+    <div>
+        <span>Uri</span>
+        <input type="text" @bind="state.Configuration.DefaultUri"  />
+    </div>
+    <div>
+        <button @onclick="Load">Load</button>
+        <button @onclick="Save">Save</button>
+    </div>
+</div>
+@if (!string.IsNullOrEmpty(error))
+{
+    <div>
+        @error
+    </div>
+}
+@code {
+
+    string localPath;
+    string defaultUri;
+    string error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        error = "";
+        localPath = state.Configuration.LocalPath.FullName;
+        defaultUri = state.Configuration.DefaultUri.AbsoluteUri;
+        Load();
+    }
+
+    void Load() {
+        state.Load();
+    }
+
+    void Save() {
+        error = "";
+        try {
+            
+            var dirInfo = new System.IO.DirectoryInfo(this.localPath);
+            if (!dirInfo.Exists) {
+                dirInfo.Create();
+            }
+            
+            state.Configuration.LocalPath = dirInfo;
+            state.Configuration.DefaultUri = new Uri(this.defaultUri);
+        }    
+        catch (Exception e){
+            this.error = e.Message;
+        }
+
+        if (string.IsNullOrEmpty(error)) {
+            state.Save();
+        }
+    }
+}
+

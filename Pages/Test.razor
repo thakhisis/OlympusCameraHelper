@@ -1,0 +1,63 @@
+@page "/test"
+@using OlympusCameraHelper.Services
+@inject TaskRunner TaskRunner
+@inject DownloadService DownloadService
+<h1>TEST</h1>
+
+<button class="btn btn-primary" @onclick="Enqueue">Enqueue</button>&nbsp;
+<button class="btn btn-secondary" @onclick="Start">Start</button>
+<button class="btn btn-secondary" @onclick="Start">Stop</button>
+<table>
+<thead>
+    <tr><th>Task</th></tr>
+</thead>
+<tbody>
+    @if (Tasks != null) {
+        foreach (var task in Tasks) {
+            <tr><td>@task.GetHashCode()</td><td>@task.Status</td><td>@(task.IsCompletedSuccessfully ? task.ToString() : "")</td></tr>
+        }
+    }
+</tbody>
+</table>
+
+@code {
+    List<Task> Tasks;
+    
+    protected override async Task OnInitializedAsync() {
+        Tasks = new List<Task>();
+        TaskRunner.StateChanged += (o,s) => {
+            this.StateHasChanged();
+        };
+    }
+
+    public void Start() {
+        TaskRunner.Start(3);
+    }
+
+    public void Stop() {
+        TaskRunner.Stop();
+    }
+    Random rand = new Random();
+    public void Enqueue() {
+
+        // if the task to run is synchronous in nature
+        var t = new Task(() => {
+            System.Threading.Thread.Sleep(rand.Next(2000, 5000));
+            System.Console.WriteLine("End of my work");
+        });
+
+        // the the task to run is with Result
+        var u = new Task(() => {
+            var result = DownloadService.TestTask(rand.Next(2000,5000));    
+            Task.WhenAll(result);
+            System.Console.WriteLine("jfeiowjfoiew " + result.Result);
+        });
+        
+        Tasks.Add(t);
+        Tasks.Add(u);
+
+        TaskRunner.Enqueue(() => t);
+        TaskRunner.Enqueue(() => u);
+
+    }
+}
